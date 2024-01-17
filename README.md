@@ -1,2 +1,2 @@
 # R-useful-code
-Useful R functions for Statistics
+Useful R scripts and functions for Statistics
