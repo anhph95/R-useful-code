@@ -1,0 +1,149 @@
+---
+title: "Montoya_Lab_Statistics"
+author: "Anh H. Pham"
+date: "2024-02-09"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+Clean up the environment and load necessary libraries.
+```{r setup}
+# Clean up environment
+rm(list=ls())
+
+# Libraries
+require(readxl)
+require(rstatix)
+require(ggplot2)
+require(dplyr)
+```
+
+Load the xlsx data
+```{r}
+df <- read_xlsx(file.choose()) %>% as.data.frame() # Navigate to data file
+head(df, 10) # Print first 10 rows of table
+```
+
+Define the variable and group being tested
+```{r}
+group <- 'Cruise' # Change this
+variable <- 'SST' # Change this
+formula <- as.formula(paste(variable,'~',group)) # Create formula for stats tests
+dec <- 2 # Rounding result to dec number of decimal points
+```
+
+Checking for statistical tests assumption If no assumption is violated, do parametric test (Student's T-test, ANOVA) If assumptions are violated, consider non-parametric test (Welch's T-Test, Welch's ANOVA, Kruskal-Wallis test)
+```{r, warning=F}
+# Shapiro's test for normal distribution
+# p-values < 0.05: Data of group doesn't follow normal distribution
+shapiro <- df %>% group_by(!!sym(group)) %>% shapiro_test(!!sym(variable)) 
+# Use !!sym(variable) to use the variable dyanmically
+print(shapiro)
+
+# Histogram and density plot to visuallize data distribution among groups
+ggplot(df, aes(x = .data[[variable]])) +
+  geom_histogram(aes(y = ..density..), binwidth = 0.1, color = 'black') +
+  geom_density(col = 'red') +
+  facet_wrap(~ .data[[group]], scales = 'free_x')
+
+# Levene's test for equal variance
+# p-value < 0.05: Data among group doesn't have equal variance
+levene <- levene_test(df,formula)
+print(levene)
+
+# Boxplot is good for checking variances
+ggplot(df, aes(x = .data[[group]], y = .data[[variable]])) +
+  geom_boxplot()
+
+```
+
+Create table of summary statistics
+```{r}
+summary_stats <- df %>% group_by(!!sym(group)) %>%
+  summarise(
+    'n' = n(),
+    'Mean' = round(mean(!!sym(variable), na.rm = T),dec),
+    'SD' = round(sd(!!sym(variable), na.rm = T),dec),
+    'Mean ± SD' = paste(Mean, '±', SD),
+    'Min' = round(min(!!sym(variable), na.rm = T), dec),
+    'Max' = round(max(!!sym(variable), na.rm = T), dec),
+    'Median' = round(median(!!sym(variable), na.rm = T),dec),
+    '25th_quantile' = round(quantile(!!sym(variable), probs = 0.25, na.rm = T), dec),
+    '75th_quantile' = round(quantile(!!sym(variable), probs = 0.75, na.rm = T), dec),
+    'IQR' = round(IQR(!!sym(variable), na.rm = TRUE), dec)
+  ) %>% as.data.frame() 
+print(summary_stats)
+```
+
+ANOVA test to compare means of 3 or more groups Only use when no assumption was violated
+If p-value < 0.05: There is a significant difference in the means of the variable among the groups being tested.
+Tukey-HSD for pairwise comparison, only use when ANOVA p-value lower than 0.05
+```{r, warning=F}
+# ANOVA
+anova <- anova_test(df,formula)
+print(anova)
+
+# Posthoc test
+tukey <- tukey_hsd(df,formula)
+print(tukey)
+
+# Bar plot, note that this is base on the summary_stats table
+ggplot(summary_stats,aes(x = .data[[group]], y = Mean, fill = .data[[group]]))+
+  geom_bar(stat = 'identity')+
+  geom_errorbar(aes(ymin=Mean-SD,ymax=Mean+SD),width=0.2)+
+  theme_classic()
+```
+
+Kruskal-Wallis to compare distrution of 3 or more group Use when an assumption is violated.
+If p-value < 0.05: There is a significant difference in the distribution of the variable among the groups being tested.
+Dunn's test for pairwise comparison, Only use when KW p-value lower than 0.05
+```{r}
+# Kruskal-Wallis
+kruskal <- kruskal_test(df,formula)
+print(kruskal)
+
+# Posthoc test
+dunn <- dunn_test(df,formula)
+print(dunn)
+
+# Boxplot, note that this is based on the df table
+ggplot(df,aes(x = .data[[group]], y = .data[[variable]], fill = .data[[group]]))+
+  geom_boxplot()+
+  theme_classic()
+```
+
+T-test example
+Options:
+* equal variance (Student's T-test) or not (Welch's T-Test)
+* one-sided or two-sided
+* paired or unpaired
+```{r}
+# Filter for only 2 group
+ds <- df %>% filter(!!sym(group) %in% c('KN197','EN614')) # Change what's in c()
+ttest <- t_test(ds, formula, var.equal=T, alternative="two.sided", paired=FALSE) # Change options
+print(ttest)
+```
+
+Linear Regression
+```{r}
+x = 'MLD'
+y = 'ChlMD'
+formula = as.formula(paste(y,'~',x))
+### Linear regression
+model <- lm(formula,df)
+summary(model)
+# Extract and print the model equation
+coefficients <- coef(model) %>% round(2)
+cat("Model function: y =", coefficients[2], "*x + ", coefficients[1], "\n")
+# Extract and print R-squared value
+r_squared <- summary(model)$r.squared %>% round(2)
+cat("R-squared value:", r_squared, "\n")
+
+# Scatter plot
+ggplot(df,aes(x=.data[[x]],y=.data[[y]]))+
+  geom_point()+
+  geom_smooth(method='lm',formula=y~x)
+```
+```
